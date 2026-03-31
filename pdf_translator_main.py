@@ -7,7 +7,7 @@ Workflow:
   1. Convert each PDF page to a high-res image (pdf2image)
   2. OCR with Tesseract to extract text
   3. Detect language per line (Hindi / English)
-  4. Translate: Hindi → English, English → Bengali (via deep-translator / Google)
+  4. Translate: Hindi → Bengali, English → Bengali (via deep-translator / Google)
   5. Output a clean, formatted PDF with colour-coded translations
 
 Dependencies — install ONCE:
@@ -34,55 +34,96 @@ import json
 from pathlib import Path
 
 # ── Dependency auto-install ────────────────────────────────────────────────────
+convert_from_path = None
+pytesseract = None
+Image = None
+GoogleTranslator = None
+TRANSLATOR_AVAILABLE = False
+A4 = ParagraphStyle = colors = SimpleDocTemplate = Paragraph = Spacer = None
+HRFlowable = PageBreak = Table = TableStyle = cm = pdfmetrics = TTFont = None
+
+
 def _install(pkg):
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", pkg, "-q"])
 
-try:
-    from pdf2image import convert_from_path
-except ImportError:
-    print("Installing pdf2image..."); _install("pdf2image")
-    from pdf2image import convert_from_path
+def ensure_runtime_dependencies(require_ocr: bool = False,
+                                require_translator: bool = False,
+                                require_pdf: bool = False):
+    """Import heavy runtime dependencies lazily so utility tests can run offline."""
+    global convert_from_path, pytesseract, Image, GoogleTranslator, TRANSLATOR_AVAILABLE
+    global A4, ParagraphStyle, colors, SimpleDocTemplate, Paragraph, Spacer
+    global HRFlowable, PageBreak, Table, TableStyle, cm, pdfmetrics, TTFont
 
-try:
-    import pytesseract
-    from PIL import Image
-except ImportError:
-    print("Installing pytesseract + Pillow..."); _install("pytesseract Pillow")
-    import pytesseract
-    from PIL import Image
+    if require_ocr and convert_from_path is None:
+        try:
+            from pdf2image import convert_from_path as _convert_from_path
+        except ImportError:
+            print("Installing pdf2image..."); _install("pdf2image")
+            from pdf2image import convert_from_path as _convert_from_path
+        convert_from_path = _convert_from_path
 
-try:
-    from deep_translator import GoogleTranslator
-    TRANSLATOR_AVAILABLE = True
-except ImportError:
-    print("Installing deep-translator..."); _install("deep-translator")
-    try:
-        from deep_translator import GoogleTranslator
-        TRANSLATOR_AVAILABLE = True
-    except Exception:
-        TRANSLATOR_AVAILABLE = False
-        print("⚠️  deep-translator not available. Translations will be skipped.")
+    if require_ocr and (pytesseract is None or Image is None):
+        try:
+            import pytesseract as _pytesseract
+            from PIL import Image as _Image
+        except ImportError:
+            print("Installing pytesseract + Pillow..."); _install("pytesseract Pillow")
+            import pytesseract as _pytesseract
+            from PIL import Image as _Image
+        pytesseract = _pytesseract
+        Image = _Image
 
-try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib import colors
-    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-        HRFlowable, PageBreak, Table, TableStyle)
-    from reportlab.lib.units import cm
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-except ImportError:
-    print("Installing reportlab..."); _install("reportlab")
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib import colors
-    from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
-        HRFlowable, PageBreak, Table, TableStyle)
-    from reportlab.lib.units import cm
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
+    if require_translator and GoogleTranslator is None:
+        try:
+            from deep_translator import GoogleTranslator as _GoogleTranslator
+            GoogleTranslator = _GoogleTranslator
+            TRANSLATOR_AVAILABLE = True
+        except ImportError:
+            print("Installing deep-translator..."); _install("deep-translator")
+            try:
+                from deep_translator import GoogleTranslator as _GoogleTranslator
+                GoogleTranslator = _GoogleTranslator
+                TRANSLATOR_AVAILABLE = True
+            except Exception:
+                TRANSLATOR_AVAILABLE = False
+                print("⚠️  deep-translator not available. Translations will be skipped.")
+
+    if require_pdf and A4 is None:
+        try:
+            from reportlab.lib.pagesizes import A4 as _A4
+            from reportlab.lib.styles import ParagraphStyle as _ParagraphStyle
+            from reportlab.lib import colors as _colors
+            from reportlab.platypus import (SimpleDocTemplate as _SimpleDocTemplate, Paragraph as _Paragraph,
+                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak, Table as _Table,
+                TableStyle as _TableStyle)
+            from reportlab.lib.units import cm as _cm
+            from reportlab.pdfbase import pdfmetrics as _pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont as _TTFont
+        except ImportError:
+            print("Installing reportlab..."); _install("reportlab")
+            from reportlab.lib.pagesizes import A4 as _A4
+            from reportlab.lib.styles import ParagraphStyle as _ParagraphStyle
+            from reportlab.lib import colors as _colors
+            from reportlab.platypus import (SimpleDocTemplate as _SimpleDocTemplate, Paragraph as _Paragraph,
+                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak, Table as _Table,
+                TableStyle as _TableStyle)
+            from reportlab.lib.units import cm as _cm
+            from reportlab.pdfbase import pdfmetrics as _pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont as _TTFont
+        A4 = _A4
+        ParagraphStyle = _ParagraphStyle
+        colors = _colors
+        SimpleDocTemplate = _SimpleDocTemplate
+        Paragraph = _Paragraph
+        Spacer = _Spacer
+        HRFlowable = _HRFlowable
+        PageBreak = _PageBreak
+        Table = _Table
+        TableStyle = _TableStyle
+        cm = _cm
+        pdfmetrics = _pdfmetrics
+        TTFont = _TTFont
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -127,6 +168,7 @@ def register_fonts():
 
 DEVANAGARI = re.compile(r'[\u0900-\u097F]')
 LATIN      = re.compile(r'[a-zA-Z]')
+BENGALI    = re.compile(r'[\u0980-\u09FF]')
 
 def detect_lang(text: str) -> str:
     """Return 'hi', 'en', or 'skip'."""
@@ -138,10 +180,29 @@ def detect_lang(text: str) -> str:
     return 'hi' if hi / total > 0.45 else 'en'
 
 
+def normalize_ocr_text(line: str) -> str:
+    """Normalize OCR artifacts that reduce detection/translation quality."""
+    line = re.sub(r'\s+', ' ', line).strip()
+    # Common OCR confusions around punctuation/dashes.
+    line = line.replace('—', '-').replace('–', '-').replace('“', '"').replace('”', '"')
+    line = line.replace('‘', "'").replace('’', "'")
+    return line
+
+
+def bengali_ratio(text: str) -> float:
+    letters = len(re.findall(r'[\u0900-\u097F\u0980-\u09FFa-zA-Z]', text))
+    if letters == 0:
+        return 0.0
+    return len(BENGALI.findall(text)) / letters
+
+
 def is_useful(line: str) -> bool:
     """Reject very short or mostly-garbled OCR lines."""
     line = line.strip()
-    if len(line) < 4:
+    if len(line) < 2:
+        return False
+    alpha_count = len(re.findall(r'[a-zA-Z\u0900-\u097F\u0980-\u09FF]', line))
+    if alpha_count < 2:
         return False
     readable = len(re.findall(
         r'[a-zA-Z0-9\s\(\)\.\,\-\+\=\/\:\;\!\?\u0900-\u097F\u0980-\u09FF]', line
@@ -157,16 +218,19 @@ class TranslationEngine:
     def __init__(self):
         self._cache: dict = {}
         if TRANSLATOR_AVAILABLE:
-            self._hi_en = GoogleTranslator(source='hi', target='en')
+            self._hi_bn = GoogleTranslator(source='hi', target='bn')
             self._en_bn = GoogleTranslator(source='en', target='bn')
+            self._auto_bn = GoogleTranslator(source='auto', target='bn')
         else:
-            self._hi_en = None
+            self._hi_bn = None
             self._en_bn = None
+            self._auto_bn = None
 
     def _do(self, translator, text: str) -> str:
         if translator is None:
             return text
-        key = (id(translator), text[:150])
+        text = normalize_ocr_text(text)
+        key = (id(translator), text[:400])
         if key in self._cache:
             return self._cache[key]
         for attempt in range(3):
@@ -181,11 +245,20 @@ class TranslationEngine:
                     print(f"    ⚠️  Translation failed: {e}")
                     return text
 
-    def hindi_to_english(self, text: str) -> str:
-        return self._do(self._hi_en, text)
+    def hindi_to_bengali(self, text: str) -> str:
+        primary = self._do(self._hi_bn, text)
+        # fallback improves quality when OCR language detection is noisy
+        if primary and bengali_ratio(primary) >= 0.25:
+            return primary
+        fallback = self._do(self._auto_bn, text)
+        return fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
 
     def english_to_bengali(self, text: str) -> str:
-        return self._do(self._en_bn, text)
+        primary = self._do(self._en_bn, text)
+        if primary and bengali_ratio(primary) >= 0.25:
+            return primary
+        fallback = self._do(self._auto_bn, text)
+        return fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -232,7 +305,11 @@ def ocr_pages(pdf_path: str, dpi: int = 220,
         pg = i + offset
         print(f"  OCR page {pg}/{offset + len(images) - 1}...", end='\r')
         text = pytesseract.image_to_string(img, lang=ocr_lang, config='--psm 6 --oem 3')
-        lines = [l.strip() for l in text.split('\n') if is_useful(l)]
+        lines = [
+            normalize_ocr_text(l)
+            for l in text.split('\n')
+            if is_useful(normalize_ocr_text(l))
+        ]
         results.append({'page': pg, 'lines': lines})
 
     print()
@@ -261,7 +338,7 @@ def translate_pages(pages: list, engine: TranslationEngine) -> list:
             entry = {'original': line, 'lang': lang, 'translation': ''}
 
             if lang == 'hi':
-                entry['translation'] = engine.hindi_to_english(line)
+                entry['translation'] = engine.hindi_to_bengali(line)
                 time.sleep(0.25)
             elif lang == 'en':
                 entry['translation'] = engine.english_to_bengali(line)
@@ -329,7 +406,7 @@ def build_pdf(enriched_pages: list, output_path: str,
     # ── Cover page ──
     story.append(P(f"  PDF Translation Report", s_header))
     story.append(P(f"Source: {source_name}", s_intro))
-    story.append(P("Hindi  →  English  |  English  →  Bengali", s_intro))
+    story.append(P("Hindi  →  Bengali  |  English  →  Bengali", s_intro))
     story.append(Spacer(1, 10))
     story.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#BDC3C7')))
     story.append(Spacer(1, 8))
@@ -337,7 +414,7 @@ def build_pdf(enriched_pages: list, output_path: str,
 
     legend = [
         ["Yellow bg", "Original Hindi text (OCR extracted)"],
-        ["Light green bg", "Hindi → English translation"],
+        ["Light green bg", "Hindi → Bengali translation"],
         ["Blue bg", "Original English text"],
         ["Purple bg", "English → Bengali translation"],
     ]
@@ -367,7 +444,7 @@ def build_pdf(enriched_pages: list, output_path: str,
                     story.append(P("Original (Hindi — OCR):", s_label))
                     story.append(P(orig, s_orig_hi))
                     if tr and tr != orig:
-                        story.append(P("→ English:", s_label))
+                        story.append(P("→ Bengali:", s_label))
                         story.append(P(tr, s_tr_en))
 
                 elif lang == 'en':
@@ -401,6 +478,41 @@ def load_progress(path: str) -> list:
     with open(path, encoding='utf-8') as f:
         return json.load(f)
 
+def evaluate_accuracy(eval_file: str, engine: TranslationEngine) -> dict:
+    """
+    Evaluate translation quality with a labeled JSON file:
+    [
+      {"source":"...", "lang":"hi|en", "target":"..."},
+      ...
+    ]
+    """
+    from difflib import SequenceMatcher
+
+    with open(eval_file, encoding='utf-8') as f:
+        dataset = json.load(f)
+
+    total = len(dataset)
+    if total == 0:
+        return {"samples": 0, "avg_similarity": 0.0, "avg_bn_ratio": 0.0}
+
+    sim_scores, bn_scores = [], []
+    for row in dataset:
+        src = normalize_ocr_text(row.get("source", ""))
+        lang = row.get("lang", "en")
+        target = normalize_ocr_text(row.get("target", ""))
+        if lang == "hi":
+            pred = engine.hindi_to_bengali(src)
+        else:
+            pred = engine.english_to_bengali(src)
+        sim_scores.append(SequenceMatcher(None, pred, target).ratio())
+        bn_scores.append(bengali_ratio(pred))
+
+    return {
+        "samples": total,
+        "avg_similarity": sum(sim_scores) / total,
+        "avg_bn_ratio": sum(bn_scores) / total,
+    }
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
@@ -419,7 +531,7 @@ def parse_pages(page_str: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PDF Translator: Hindi→English, English→Bengali (image-based PDFs)",
+        description="PDF Translator: Hindi→Bengali, English→Bengali (image-based PDFs)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -429,13 +541,35 @@ Examples:
   python pdf_translator_v2.py physics.pdf --ocr-only   # extract without translating
         """
     )
-    parser.add_argument('input', help='Input PDF file')
+    parser.add_argument('input', nargs='?', help='Input PDF file (not required for --evaluate-only)')
     parser.add_argument('-o', '--output', help='Output PDF path (auto-named if omitted)')
     parser.add_argument('--pages', help='Page range, e.g. "3-10" or "1,3,5"')
     parser.add_argument('--dpi', type=int, default=220, help='OCR DPI (default 220, use 300 for better quality)')
     parser.add_argument('--ocr-only', action='store_true', help='Only extract text, no translation')
     parser.add_argument('--resume', help='Resume from a saved JSON progress file')
+    parser.add_argument('--eval-file', help='Optional labeled JSON file to evaluate translation accuracy')
+    parser.add_argument('--evaluate-only', action='store_true',
+                        help='Run only --eval-file accuracy check, skip PDF OCR/output')
     args = parser.parse_args()
+
+    if args.evaluate_only:
+        if not args.eval_file:
+            print("❌ --evaluate-only requires --eval-file")
+            sys.exit(1)
+        ensure_runtime_dependencies(require_translator=True)
+        engine = TranslationEngine()
+        metrics = evaluate_accuracy(args.eval_file, engine)
+        print("\n📊 Accuracy evaluation")
+        print(f"  Samples: {metrics['samples']}")
+        print(f"  Avg similarity vs reference: {metrics['avg_similarity']:.3f}")
+        print(f"  Avg Bengali character ratio: {metrics['avg_bn_ratio']:.3f}")
+        return
+
+    if not args.input:
+        print("❌ Input PDF is required unless using --evaluate-only")
+        sys.exit(1)
+
+    ensure_runtime_dependencies(require_ocr=True, require_translator=True, require_pdf=True)
 
     if not os.path.exists(args.input):
         print(f"❌ File not found: {args.input}")
@@ -498,6 +632,13 @@ Examples:
     # 3. Build PDF
     print("\n📑 Step 3: Building output PDF")
     build_pdf(enriched_pages, output, source_name=Path(args.input).name)
+
+    if args.eval_file:
+        print("\n📊 Step 4: Accuracy evaluation")
+        metrics = evaluate_accuracy(args.eval_file, engine)
+        print(f"  Samples: {metrics['samples']}")
+        print(f"  Avg similarity vs reference: {metrics['avg_similarity']:.3f}")
+        print(f"  Avg Bengali character ratio: {metrics['avg_bn_ratio']:.3f}")
 
     print(f"\n🎉 Done!")
 
