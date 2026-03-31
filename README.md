@@ -26,6 +26,9 @@ python pdf_translator_main.py input.pdf -o output.pdf --eval-file eval_samples.j
 
 # evaluate only (no OCR/PDF generation)
 python pdf_translator_main.py --evaluate-only --eval-file eval_samples.json
+
+# improve meaning accuracy with custom glossary terms
+python pdf_translator_main.py input.pdf -o output.pdf --glossary-file glossary_bn.json
 ```
 
 ### Evaluation dataset format
@@ -37,6 +40,11 @@ python pdf_translator_main.py --evaluate-only --eval-file eval_samples.json
 ```
 
 Use the included `eval_samples.json` as a starter baseline and replace entries with domain-specific lines from your own PDFs for better accuracy tracking.
+
+## Meaning accuracy + spelling quality
+- Add domain terms to `glossary_bn.json` (for example, subject names or technical vocabulary).
+- The translator applies glossary replacements after translation to preserve intended meaning.
+- Bengali output is post-processed to reduce common spacing/punctuation and spelling artifacts.
 
 ## Bengali font (Kalpurush)
 - For better Bengali rendering in generated PDFs, place `kalpurush.ttf` at:

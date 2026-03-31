@@ -1,6 +1,12 @@
 import unittest
+import json
+import tempfile
+import os
 
-from pdf_translator_main import detect_lang, normalize_ocr_text, is_useful, bengali_ratio
+from pdf_translator_main import (
+    detect_lang, normalize_ocr_text, is_useful, bengali_ratio,
+    postprocess_bengali_text, load_glossary
+)
 
 
 class TranslationUtilsTests(unittest.TestCase):
@@ -23,6 +29,21 @@ class TranslationUtilsTests(unittest.TestCase):
     def test_bengali_ratio(self):
         self.assertGreater(bengali_ratio("এটি বাংলা বাক্য"), 0.5)
         self.assertEqual(bengali_ratio("This is English"), 0.0)
+
+    def test_postprocess_bengali_text(self):
+        raw = "বাংলাে  পরিক্ষা ।"
+        self.assertEqual(postprocess_bengali_text(raw), "বাংলা পরীক্ষা।")
+
+    def test_load_glossary(self):
+        payload = {"Physics": "পদার্থবিজ্ঞান"}
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False, encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+            path = f.name
+        try:
+            glossary = load_glossary(path)
+            self.assertEqual(glossary["Physics"], "পদার্থবিজ্ঞান")
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

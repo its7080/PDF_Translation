@@ -185,6 +185,23 @@ def normalize_ocr_text(line: str) -> str:
     return line
 
 
+BN_COMMON_CORRECTIONS = {
+    "বাংলাে": "বাংলা",
+    "পরিক্ষা": "পরীক্ষা",
+    "বই .": "বই।",
+}
+
+
+def postprocess_bengali_text(text: str) -> str:
+    """Fix common Bengali spacing/punctuation/spelling artifacts."""
+    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r'\s+([,.;:!?])', r'\1', text)
+    text = text.replace(" ।", "।")
+    for wrong, right in BN_COMMON_CORRECTIONS.items():
+        text = text.replace(wrong, right)
+    return text
+
+
 def bengali_ratio(text: str) -> float:
     letters = len(re.findall(r'[\u0900-\u097F\u0980-\u09FFa-zA-Z]', text))
     if letters == 0:
@@ -211,8 +228,9 @@ def is_useful(line: str) -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TranslationEngine:
-    def __init__(self):
+    def __init__(self, glossary: dict | None = None):
         self._cache: dict = {}
+        self._glossary = glossary or {}
         if TRANSLATOR_AVAILABLE:
             self._hi_bn = GoogleTranslator(source='hi', target='bn')
             self._en_bn = GoogleTranslator(source='en', target='bn')
@@ -232,6 +250,7 @@ class TranslationEngine:
         for attempt in range(3):
             try:
                 result = translator.translate(text[:4900]) or text
+                result = postprocess_bengali_text(result)
                 self._cache[key] = result
                 return result
             except Exception as e:
@@ -241,20 +260,27 @@ class TranslationEngine:
                     print(f"    ⚠️  Translation failed: {e}")
                     return text
 
+    def _apply_glossary(self, text: str) -> str:
+        for src, tgt in self._glossary.items():
+            text = text.replace(src, tgt)
+        return text
+
     def hindi_to_bengali(self, text: str) -> str:
         primary = self._do(self._hi_bn, text)
         # fallback improves quality when OCR language detection is noisy
         if primary and bengali_ratio(primary) >= 0.25:
-            return primary
+            return self._apply_glossary(primary)
         fallback = self._do(self._auto_bn, text)
-        return fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
+        chosen = fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
+        return self._apply_glossary(chosen)
 
     def english_to_bengali(self, text: str) -> str:
         primary = self._do(self._en_bn, text)
         if primary and bengali_ratio(primary) >= 0.25:
-            return primary
+            return self._apply_glossary(primary)
         fallback = self._do(self._auto_bn, text)
-        return fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
+        chosen = fallback if bengali_ratio(fallback) > bengali_ratio(primary) else primary
+        return self._apply_glossary(chosen)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -474,6 +500,15 @@ def load_progress(path: str) -> list:
     with open(path, encoding='utf-8') as f:
         return json.load(f)
 
+def load_glossary(path: str | None) -> dict:
+    if not path:
+        return {}
+    with open(path, encoding='utf-8') as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Glossary file must be a JSON object: {\"source\":\"target\"}")
+    return {str(k): str(v) for k, v in data.items()}
+
 def evaluate_accuracy(eval_file: str, engine: TranslationEngine) -> dict:
     """
     Evaluate translation quality with a labeled JSON file:
@@ -544,16 +579,19 @@ Examples:
     parser.add_argument('--ocr-only', action='store_true', help='Only extract text, no translation')
     parser.add_argument('--resume', help='Resume from a saved JSON progress file')
     parser.add_argument('--eval-file', help='Optional labeled JSON file to evaluate translation accuracy')
+    parser.add_argument('--glossary-file', help='Optional JSON glossary for term-accurate Bengali output')
     parser.add_argument('--evaluate-only', action='store_true',
                         help='Run only --eval-file accuracy check, skip PDF OCR/output')
     args = parser.parse_args()
+
+    glossary = load_glossary(args.glossary_file) if args.glossary_file else {}
 
     if args.evaluate_only:
         if not args.eval_file:
             print("❌ --evaluate-only requires --eval-file")
             sys.exit(1)
         ensure_runtime_dependencies(require_translator=True)
-        engine = TranslationEngine()
+        engine = TranslationEngine(glossary=glossary)
         metrics = evaluate_accuracy(args.eval_file, engine)
         print("\n📊 Accuracy evaluation")
         print(f"  Samples: {metrics['samples']}")
@@ -612,7 +650,7 @@ Examples:
     print("🌐 Step 2: Translation")
     if not TRANSLATOR_AVAILABLE:
         print("  ⚠️  Translator not available. Install deep-translator and retry.")
-    engine = TranslationEngine()
+    engine = TranslationEngine(glossary=glossary)
 
     # Convert pages format for translate_pages
     pages_for_translation = pages
