@@ -17,6 +17,8 @@ This project translates **Hindi** and **English** text from PDFs into **Bengali*
 
 ## Run
 ```bash
+pip install -r requirement.txt
+
 python pdf_translator_main.py input.pdf -o output.pdf
 
 # optional: evaluate accuracy with a labeled dataset
