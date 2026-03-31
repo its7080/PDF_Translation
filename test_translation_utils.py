@@ -5,7 +5,7 @@ import os
 
 from pdf_translator_main import (
     detect_lang, normalize_ocr_text, is_useful, bengali_ratio,
-    postprocess_bengali_text, load_glossary
+    postprocess_bengali_text, load_glossary, translate_mixed_line
 )
 
 
@@ -15,6 +15,9 @@ class TranslationUtilsTests(unittest.TestCase):
 
     def test_detect_lang_english(self):
         self.assertEqual(detect_lang("This is an english sentence"), "en")
+
+    def test_detect_lang_mixed(self):
+        self.assertEqual(detect_lang("यह किताब mixed"), "mixed")
 
     def test_normalize_ocr_text(self):
         raw = "  Hello   —   world  “quote”  "
@@ -44,6 +47,17 @@ class TranslationUtilsTests(unittest.TestCase):
             self.assertEqual(glossary["Physics"], "পদার্থবিজ্ঞান")
         finally:
             os.unlink(path)
+
+    def test_translate_mixed_line(self):
+        class DummyEngine:
+            def hindi_to_bengali(self, text):
+                return "হিন্দি"
+            def english_to_bengali(self, text):
+                return "ইংরেজি"
+
+        out = translate_mixed_line("यह test", DummyEngine())
+        self.assertIn("হিন্দি", out)
+        self.assertIn("ইংরেজি", out)
 
 
 if __name__ == "__main__":
