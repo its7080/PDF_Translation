@@ -19,10 +19,10 @@ System tools (install once):
     Windows:        https://github.com/UB-Mannheim/tesseract/wiki  +  poppler for Windows
 
 Usage:
-    python pdf_translator_v2.py input.pdf
-    python pdf_translator_v2.py input.pdf -o output.pdf
-    python pdf_translator_v2.py input.pdf --pages 3-10   # specific page range
-    python pdf_translator_v2.py input.pdf --dpi 300      # higher DPI for better OCR
+    python pdf_translator_main.py input.pdf
+    python pdf_translator_main.py input.pdf -o output.pdf
+    python pdf_translator_main.py input.pdf --pages 3-10   # specific page range
+    python pdf_translator_main.py input.pdf --dpi 300      # higher DPI for better OCR
 """
 
 import argparse
@@ -40,7 +40,7 @@ Image = None
 GoogleTranslator = None
 TRANSLATOR_AVAILABLE = False
 A4 = ParagraphStyle = colors = SimpleDocTemplate = Paragraph = Spacer = None
-HRFlowable = PageBreak = Table = TableStyle = cm = pdfmetrics = TTFont = None
+HRFlowable = PageBreak = cm = pdfmetrics = TTFont = None
 
 
 def _install(pkg):
@@ -53,7 +53,7 @@ def ensure_runtime_dependencies(require_ocr: bool = False,
     """Import heavy runtime dependencies lazily so utility tests can run offline."""
     global convert_from_path, pytesseract, Image, GoogleTranslator, TRANSLATOR_AVAILABLE
     global A4, ParagraphStyle, colors, SimpleDocTemplate, Paragraph, Spacer
-    global HRFlowable, PageBreak, Table, TableStyle, cm, pdfmetrics, TTFont
+    global HRFlowable, PageBreak, cm, pdfmetrics, TTFont
 
     if require_ocr and convert_from_path is None:
         try:
@@ -95,8 +95,7 @@ def ensure_runtime_dependencies(require_ocr: bool = False,
             from reportlab.lib.styles import ParagraphStyle as _ParagraphStyle
             from reportlab.lib import colors as _colors
             from reportlab.platypus import (SimpleDocTemplate as _SimpleDocTemplate, Paragraph as _Paragraph,
-                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak, Table as _Table,
-                TableStyle as _TableStyle)
+                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak)
             from reportlab.lib.units import cm as _cm
             from reportlab.pdfbase import pdfmetrics as _pdfmetrics
             from reportlab.pdfbase.ttfonts import TTFont as _TTFont
@@ -106,8 +105,7 @@ def ensure_runtime_dependencies(require_ocr: bool = False,
             from reportlab.lib.styles import ParagraphStyle as _ParagraphStyle
             from reportlab.lib import colors as _colors
             from reportlab.platypus import (SimpleDocTemplate as _SimpleDocTemplate, Paragraph as _Paragraph,
-                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak, Table as _Table,
-                TableStyle as _TableStyle)
+                Spacer as _Spacer, HRFlowable as _HRFlowable, PageBreak as _PageBreak)
             from reportlab.lib.units import cm as _cm
             from reportlab.pdfbase import pdfmetrics as _pdfmetrics
             from reportlab.pdfbase.ttfonts import TTFont as _TTFont
@@ -119,8 +117,6 @@ def ensure_runtime_dependencies(require_ocr: bool = False,
         Spacer = _Spacer
         HRFlowable = _HRFlowable
         PageBreak = _PageBreak
-        Table = _Table
-        TableStyle = _TableStyle
         cm = _cm
         pdfmetrics = _pdfmetrics
         TTFont = _TTFont
@@ -130,17 +126,17 @@ def ensure_runtime_dependencies(require_ocr: bool = False,
 #  FONT SETUP  (FreeSans supports Unicode including Bengali and Devanagari)
 # ══════════════════════════════════════════════════════════════════════════════
 
-FONT_PATHS = [
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    "C:/Windows/Fonts/arial.ttf",
-    "C:/Windows/Fonts/arialbd.ttf",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-]
-
 def register_fonts():
     """Register a Unicode-capable font for reportlab."""
+    # Preferred Bengali-friendly font (project-local path)
+    kalpurush_path = Path(__file__).parent / "fonts" / "kalpurush.ttf"
+    if kalpurush_path.exists():
+        try:
+            pdfmetrics.registerFont(TTFont("Kalpurush", str(kalpurush_path)))
+            return "Kalpurush", "Kalpurush"
+        except Exception:
+            pass
+
     candidates = [
         ("/usr/share/fonts/truetype/freefont/FreeSans.ttf",     "UniFont",     False),
         ("/usr/share/fonts/truetype/freefont/FreeSansBold.ttf", "UniFontBold", False),
@@ -383,9 +379,9 @@ def build_pdf(enriched_pages: list, output_path: str,
                    backColor=colors.HexColor('#FFF8E1'), fontSize=9.5)
     s_orig_en = ps('OE', textColor=colors.HexColor('#1A3A5C'),
                    backColor=colors.HexColor('#E3F2FD'), fontSize=9.5)
-    s_tr_en   = ps('TE', textColor=colors.HexColor('#1B5E20'),
+    s_tr_hi_bn = ps('THB', textColor=colors.HexColor('#1B5E20'),
                    backColor=colors.HexColor('#E8F5E9'), fontSize=9.5)
-    s_tr_bn   = ps('TB', textColor=colors.HexColor('#4A148C'),
+    s_tr_en_bn = ps('TEB', textColor=colors.HexColor('#4A148C'),
                    backColor=colors.HexColor('#F3E5F5'), fontSize=9.5)
     s_intro   = ps('IN', textColor=colors.HexColor('#555'))
 
@@ -445,14 +441,14 @@ def build_pdf(enriched_pages: list, output_path: str,
                     story.append(P(orig, s_orig_hi))
                     if tr and tr != orig:
                         story.append(P("→ Bengali:", s_label))
-                        story.append(P(tr, s_tr_en))
+                        story.append(P(tr, s_tr_hi_bn))
 
                 elif lang == 'en':
                     story.append(P("Original (English):", s_label))
                     story.append(P(orig, s_orig_en))
                     if tr and tr != orig:
                         story.append(P("→ Bengali:", s_label))
-                        story.append(P(tr, s_tr_bn))
+                        story.append(P(tr, s_tr_en_bn))
 
                 story.append(Spacer(1, 2))
 
@@ -535,10 +531,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python pdf_translator_v2.py physics.pdf
-  python pdf_translator_v2.py physics.pdf -o physics_bn.pdf
-  python pdf_translator_v2.py physics.pdf --pages 3-16 --dpi 300
-  python pdf_translator_v2.py physics.pdf --ocr-only   # extract without translating
+  python pdf_translator_main.py physics.pdf
+  python pdf_translator_main.py physics.pdf -o physics_bn.pdf
+  python pdf_translator_main.py physics.pdf --pages 3-16 --dpi 300
+  python pdf_translator_main.py physics.pdf --ocr-only   # extract without translating
         """
     )
     parser.add_argument('input', nargs='?', help='Input PDF file (not required for --evaluate-only)')

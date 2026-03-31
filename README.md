@@ -37,3 +37,8 @@ python pdf_translator_main.py --evaluate-only --eval-file eval_samples.json
 ```
 
 Use the included `eval_samples.json` as a starter baseline and replace entries with domain-specific lines from your own PDFs for better accuracy tracking.
+
+## Bengali font (Kalpurush)
+- For better Bengali rendering in generated PDFs, place `kalpurush.ttf` at:
+  - `fonts/kalpurush.ttf`
+- The script will auto-detect and use it before fallback fonts.
