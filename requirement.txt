@@ -1,0 +1,7 @@
+pdf2image
+pytesseract
+Pillow
+deep-translator
+reportlab
+pypdf
+pdfplumber
