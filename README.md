@@ -5,6 +5,7 @@ This project translates **Hindi** and **English** text from PDFs into **Bengali*
 ## What it does
 - Extracts text from image-based/scanned PDFs using OCR.
 - Detects whether a line is Hindi or English.
+- Handles mixed Hindi+English lines and translates both parts into Bengali.
 - Translates both Hindi and English lines into Bengali.
 - Builds a readable output PDF with source text + Bengali translation.
 

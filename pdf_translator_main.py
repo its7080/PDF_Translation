@@ -167,12 +167,16 @@ LATIN      = re.compile(r'[a-zA-Z]')
 BENGALI    = re.compile(r'[\u0980-\u09FF]')
 
 def detect_lang(text: str) -> str:
-    """Return 'hi', 'en', or 'skip'."""
+    """Return 'hi', 'en', 'mixed', or 'skip'."""
     hi = len(DEVANAGARI.findall(text))
     en = len(LATIN.findall(text))
     total = hi + en
     if total == 0:
         return 'skip'
+    if hi > 0 and en > 0:
+        ratio = hi / total
+        if 0.25 <= ratio <= 0.75:
+            return 'mixed'
     return 'hi' if hi / total > 0.45 else 'en'
 
 
@@ -283,6 +287,29 @@ class TranslationEngine:
         return self._apply_glossary(chosen)
 
 
+MIXED_CHUNK_RE = re.compile(r'[\u0900-\u097F\s]+|[A-Za-z0-9\s]+|[^\u0900-\u097FA-Za-z0-9\s]+')
+
+
+def translate_mixed_line(line: str, engine: TranslationEngine) -> str:
+    """
+    Translate mixed Hindi/English lines chunk-by-chunk into Bengali while preserving symbols.
+    """
+    out = []
+    for chunk in MIXED_CHUNK_RE.findall(line):
+        stripped = chunk.strip()
+        if not stripped:
+            out.append(chunk)
+            continue
+        lang = detect_lang(stripped)
+        if lang == 'hi':
+            out.append(engine.hindi_to_bengali(stripped))
+        elif lang == 'en':
+            out.append(engine.english_to_bengali(stripped))
+        else:
+            out.append(chunk)
+    return postprocess_bengali_text(' '.join(part.strip() for part in out if part).strip())
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  OCR EXTRACTION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -364,6 +391,9 @@ def translate_pages(pages: list, engine: TranslationEngine) -> list:
                 time.sleep(0.25)
             elif lang == 'en':
                 entry['translation'] = engine.english_to_bengali(line)
+                time.sleep(0.25)
+            elif lang == 'mixed':
+                entry['translation'] = translate_mixed_line(line, engine)
                 time.sleep(0.25)
 
             translated_lines.append(entry)
@@ -471,6 +501,12 @@ def build_pdf(enriched_pages: list, output_path: str,
 
                 elif lang == 'en':
                     story.append(P("Original (English):", s_label))
+                    story.append(P(orig, s_orig_en))
+                    if tr and tr != orig:
+                        story.append(P("→ Bengali:", s_label))
+                        story.append(P(tr, s_tr_en_bn))
+                elif lang == 'mixed':
+                    story.append(P("Original (Hindi + English):", s_label))
                     story.append(P(orig, s_orig_en))
                     if tr and tr != orig:
                         story.append(P("→ Bengali:", s_label))
