@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from PyPDF2 import PdfReader, PdfWriter
 
-def split_pdf(input_path, chunk_size=40):
+def split_pdf(input_path, chunk_size=25):
     # Load PDF
     reader = PdfReader(input_path)
     total_pages = len(reader.pages)
